@@ -1,5 +1,7 @@
 FROM golang:alpine AS builder
 
+LABEL org.opencontainers.image.source=https://github.com/secnex/bin-api
+
 WORKDIR /app
 
 COPY go.mod ./
