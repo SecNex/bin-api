@@ -1,0 +1,23 @@
+name: Docker Build and Push
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and Push Docker image
+        run: |
+          docker login --username ${{ secrets.GHRC_USERNAME }} --password ${{ secrets.GHRC_TOKEN }} ghcr.io
+          docker build -t ghcr.io/secnex/bin-api:${{ github.ref_name }} -t ghcr.io/secnex/bin-api:latest .
+          docker push ghcr.io/secnex/bin-api:${{ github.ref_name }}
+          docker push ghcr.io/secnex/bin-api:latest

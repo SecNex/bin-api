@@ -1,0 +1,1 @@
+# SecNex Bin API 🗑️
