@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/secnex/bin-api/logger"
 )
 
 type Server struct {
@@ -77,7 +79,15 @@ func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func (s *Server) Healthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func (s *Server) Start() {
-	http.HandleFunc("/", s.HandleRequest)
-	http.ListenAndServe(s.String(), nil)
+	router := http.NewServeMux()
+	router.HandleFunc("/", s.HandleRequest)
+	router.HandleFunc("/healthz", s.Healthz)
+	handler := logger.LogHTTPRequest(router)
+	http.ListenAndServe(s.String(), handler)
 }
