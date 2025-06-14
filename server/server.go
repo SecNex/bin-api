@@ -75,7 +75,9 @@ func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	// URL-Parameter verarbeiten
 	response["params"] = map[string]interface{}{}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+
 	json.NewEncoder(w).Encode(response)
 }
 
