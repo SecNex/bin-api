@@ -33,10 +33,7 @@ func InitSentry(config SentryConfig) error {
 		Debug:            config.Debug,
 		AttachStacktrace: true,
 		BeforeSend: func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
-			// Filter out or modify events before sending to Sentry
-			if event.Level == sentry.LevelInfo {
-				return nil // Don't send info level events
-			}
+			// Send all events including info level for performance monitoring
 			return event
 		},
 	})
@@ -211,8 +208,27 @@ func LogHTTPRequest(next http.Handler) http.Handler {
 			transaction.Status = sentry.HTTPtoSpanStatus(rw.statusCode)
 		}
 
-		// Send error responses to Sentry
-		if rw.statusCode >= 500 {
+		// Send all requests as performance data to Sentry
+		if rw.statusCode >= 200 && rw.statusCode < 400 {
+			// Log successful requests as performance data
+			hub.WithScope(func(scope *sentry.Scope) {
+				scope.SetLevel(sentry.LevelInfo)
+				scope.SetTag("log_type", "http_performance")
+				scope.SetTag("http.status_code", strconv.Itoa(rw.statusCode))
+				scope.SetTag("http.method", r.Method)
+				scope.SetTag("http.path", r.URL.Path)
+				scope.SetContext("performance", map[string]interface{}{
+					"method":        r.Method,
+					"url":           r.URL.String(),
+					"status_code":   rw.statusCode,
+					"response_time": entry.ResponseTime.Milliseconds(),
+					"response_size": entry.ResponseSize,
+					"user_agent":    r.UserAgent(),
+					"remote_ip":     r.RemoteAddr,
+				})
+				hub.CaptureMessage(fmt.Sprintf("HTTP %d: %s %s (%dms)", rw.statusCode, r.Method, r.URL.Path, entry.ResponseTime.Milliseconds()))
+			})
+		} else if rw.statusCode >= 500 {
 			hub.WithScope(func(scope *sentry.Scope) {
 				scope.SetLevel(sentry.LevelError)
 				scope.SetTag("http.status_code", strconv.Itoa(rw.statusCode))
@@ -293,9 +309,130 @@ func LogWarning(message string, tags map[string]string, extra map[string]interfa
 	})
 }
 
-// LogInfo logs an info message to standard logger (not sent to Sentry by default)
-func LogInfo(message string) {
+// LogInfo logs an info message to both standard logger and Sentry for performance monitoring
+func LogInfo(message string, tags map[string]string, extra map[string]interface{}) {
 	log.Printf("INFO: %s", message)
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetLevel(sentry.LevelInfo)
+
+		for key, value := range tags {
+			scope.SetTag(key, value)
+		}
+
+		if extra != nil {
+			scope.SetContext("extra", extra)
+		}
+
+		scope.SetTag("log_type", "performance")
+		sentry.CaptureMessage(message)
+	})
+}
+
+// LogPerformance logs performance metrics to Sentry
+func LogPerformance(operation string, duration time.Duration, tags map[string]string, extra map[string]interface{}) {
+	message := fmt.Sprintf("Performance: %s took %v", operation, duration)
+	log.Printf("PERFORMANCE: %s", message)
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetLevel(sentry.LevelInfo)
+		scope.SetTag("log_type", "performance")
+		scope.SetTag("operation", operation)
+		scope.SetTag("duration_ms", fmt.Sprintf("%.2f", duration.Seconds()*1000))
+
+		for key, value := range tags {
+			scope.SetTag(key, value)
+		}
+
+		if extra == nil {
+			extra = make(map[string]interface{})
+		}
+		extra["duration_ns"] = duration.Nanoseconds()
+		extra["duration_ms"] = duration.Seconds() * 1000
+		scope.SetContext("performance", extra)
+
+		sentry.CaptureMessage(message)
+	})
+}
+
+// LogMetric logs custom metrics to Sentry for performance monitoring
+func LogMetric(name string, value interface{}, unit string, tags map[string]string) {
+	message := fmt.Sprintf("Metric: %s = %v %s", name, value, unit)
+	log.Printf("METRIC: %s", message)
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetLevel(sentry.LevelInfo)
+		scope.SetTag("log_type", "metric")
+		scope.SetTag("metric_name", name)
+		scope.SetTag("metric_unit", unit)
+
+		for key, val := range tags {
+			scope.SetTag(key, val)
+		}
+
+		scope.SetContext("metric", map[string]interface{}{
+			"name":  name,
+			"value": value,
+			"unit":  unit,
+		})
+
+		sentry.CaptureMessage(message)
+	})
+}
+
+// LogDatabaseQuery logs database performance to Sentry
+func LogDatabaseQuery(query string, duration time.Duration, rowsAffected int64, tags map[string]string) {
+	message := fmt.Sprintf("DB Query took %v, affected %d rows", duration, rowsAffected)
+	log.Printf("DB_PERFORMANCE: %s", message)
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetLevel(sentry.LevelInfo)
+		scope.SetTag("log_type", "database_performance")
+		scope.SetTag("duration_ms", fmt.Sprintf("%.2f", duration.Seconds()*1000))
+		scope.SetTag("rows_affected", fmt.Sprintf("%d", rowsAffected))
+
+		for key, value := range tags {
+			scope.SetTag(key, value)
+		}
+
+		scope.SetContext("database", map[string]interface{}{
+			"query":         query,
+			"duration_ns":   duration.Nanoseconds(),
+			"duration_ms":   duration.Seconds() * 1000,
+			"rows_affected": rowsAffected,
+		})
+
+		sentry.CaptureMessage(message)
+	})
+}
+
+// LogAPICall logs external API call performance to Sentry
+func LogAPICall(endpoint string, method string, statusCode int, duration time.Duration, tags map[string]string) {
+	message := fmt.Sprintf("API Call: %s %s returned %d in %v", method, endpoint, statusCode, duration)
+	log.Printf("API_PERFORMANCE: %s", message)
+
+	sentry.WithScope(func(scope *sentry.Scope) {
+		scope.SetLevel(sentry.LevelInfo)
+		scope.SetTag("log_type", "api_performance")
+		scope.SetTag("api_endpoint", endpoint)
+		scope.SetTag("api_method", method)
+		scope.SetTag("api_status_code", fmt.Sprintf("%d", statusCode))
+		scope.SetTag("duration_ms", fmt.Sprintf("%.2f", duration.Seconds()*1000))
+
+		for key, value := range tags {
+			scope.SetTag(key, value)
+		}
+
+		scope.SetContext("api_call", map[string]interface{}{
+			"endpoint":    endpoint,
+			"method":      method,
+			"status_code": statusCode,
+			"duration_ns": duration.Nanoseconds(),
+			"duration_ms": duration.Seconds() * 1000,
+		})
+
+		sentry.CaptureMessage(message)
+	})
 }
 
 // Flush flushes any pending Sentry events
