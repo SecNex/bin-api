@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/secnex/bin-api/logger"
@@ -38,15 +39,16 @@ func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
 
 	response := make(map[string]interface{})
 
-	// Body verarbeiten, wenn vorhanden
-	if r.Body != nil {
+	methodsWithBody := []string{"POST", "PUT", "PATCH"}
+
+	if r.Body != nil && slices.Contains(methodsWithBody, r.Method) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			// Log error to Sentry
 			logger.LogError(err, "Failed to read request body",
 				map[string]string{"endpoint": "handle_request"},
 				map[string]interface{}{"url": r.URL.String()})
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Request body is not valid JSON or not present", http.StatusBadRequest)
 			return
 		}
 		if len(body) > 0 {
@@ -56,7 +58,7 @@ func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				logger.LogError(err, "Failed to parse JSON body",
 					map[string]string{"endpoint": "handle_request"},
 					map[string]interface{}{"body": string(body)})
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Request body is not valid JSON", http.StatusBadRequest)
 				return
 			}
 			response["body"] = bodyData
