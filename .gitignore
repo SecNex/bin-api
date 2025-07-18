@@ -6,3 +6,4 @@
 .env.development
 .env.test
 .env.production
+SENTRY_SETUP.md

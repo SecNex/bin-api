@@ -1,3 +1,8 @@
 README.md
 docker-compose.yaml
 Dockerfile
+.gitignore
+.github/
+.env
+RAILWAY.md
+*.md
